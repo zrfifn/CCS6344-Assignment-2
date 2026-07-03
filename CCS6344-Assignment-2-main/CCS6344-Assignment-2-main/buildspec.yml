@@ -1,0 +1,18 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - pip install --upgrade pip
+      - pip install cfn-lint
+
+  build:
+    commands:
+      - echo "Linting CloudFormation templates (excluding buildspec.yml)..."
+      - cfn-lint -v 01-network.yml 02-security-groups.yml 03-rds-mysql.yml 04-app-alb.yml 05-s3-secure.yml 06-waf.yml
+
+artifacts:
+  files:
+    - "**/*"

@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "DBCS A2 - Step 4 App Tier ALB (HTTP only) + EC2 PHP (private) + NAT + IAM Role (SSM+CloudWatch)"
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "Select dbcs-a2-vpc"
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select dbcs-a2-public-a (10.0.1.0/24)"
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select dbcs-a2-public-b (10.0.2.0/24)"
+
+  PrivateAppSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select dbcs-a2-private-app-a (10.0.11.0/24)"
+  PrivateAppSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select dbcs-a2-private-app-b (10.0.12.0/24)"
+
+  AlbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Select dbcs-a2-sg-alb"
+  AppSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Select dbcs-a2-sg-app"
+
+  RdsEndpoint:
+    Type: String
+    Description: "Copy from Step 3 stack Outputs: RdsEndpoint"
+
+  DbName:
+    Type: String
+    Default: "appdb"
+  DbUser:
+    Type: String
+    Default: "admin"
+  DbPassword:
+    Type: String
+    NoEcho: true
+
+  LatestAmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64"
+
+Resources:
+  NatEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Ref PublicSubnetA
+
+  PrivateAppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: dbcs-a2-rt-private-app
+
+  PrivateAppDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NatGateway
+    Properties:
+      RouteTableId: !Ref PrivateAppRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateAppAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetA
+      RouteTableId: !Ref PrivateAppRouteTable
+
+  PrivateAppAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetB
+      RouteTableId: !Ref PrivateAppRouteTable
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t3.micro
+      SubnetId: !Ref PrivateAppSubnetA
+      SecurityGroupIds:
+        - !Ref AppSecurityGroupId
+      Tags:
+        - Key: Name
+          Value: dbcs-a2-php-app
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -eux
+
+          dnf update -y
+          dnf install -y httpd php php-mysqlnd
+
+          systemctl enable httpd
+          systemctl start httpd
+
+          cat > /var/www/html/index.php << 'EOF'
+          <?php
+          $host = "${RdsEndpoint}";
+          $db   = "${DbName}";
+          $user = "${DbUser}";
+          $pass = "${DbPassword}";
+
+          $conn = new mysqli($host, $user, $pass, $db);
+
+          if ($conn->connect_error) {
+              http_response_code(500);
+              echo "DB connection FAILED: " . $conn->connect_error;
+              exit();
+          }
+          echo "DB connection SUCCESS";
+          $conn->close();
+          ?>
+          EOF
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: dbcs-a2-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: dbcs-a2-tg
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      Targets:
+        - Id: !Ref AppInstance
+          Port: 80
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: "200"
+
+  ListenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  AlbDnsName:
+    Description: "Open in browser: http://<AlbDnsName>/"
+    Value: !GetAtt Alb.DNSName
+
+  AlbArn:
+    Description: "ALB ARN (use this for WAF Step 6 AlbArn parameter)"
+    Value: !Ref Alb

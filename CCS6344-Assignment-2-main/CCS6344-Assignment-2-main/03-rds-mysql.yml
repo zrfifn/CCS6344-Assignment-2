@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "DBCS A2 - Step 3 RDS MySQL (Free Tier-friendly, private, encrypted)"
+
+Parameters:
+  DbSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select private DB subnet A (dbcs-a2-private-db-a)"
+
+  DbSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select private DB subnet B (dbcs-a2-private-db-b)"
+
+  DbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Select DB security group (dbcs-a2-sg-db)"
+
+  DBName:
+    Type: String
+    Default: "appdb"
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+
+  MasterUsername:
+    Type: String
+    Default: "admin"
+    AllowedPattern: "^[a-zA-Z][a-zA-Z0-9_]*$"
+
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: "DB password (min 8 chars). Not shown in console."
+
+Resources:
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Private DB subnets for RDS"
+      SubnetIds:
+        - !Ref DbSubnetA
+        - !Ref DbSubnetB
+      Tags:
+        - Key: Name
+          Value: dbcs-a2-db-subnet-group
+
+  RdsInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: mysql
+      EngineVersion: "8.0"
+      DBInstanceIdentifier: dbcs-a2-mysql
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      StorageType: gp2
+      StorageEncrypted: true
+
+      MultiAZ: false
+      PubliclyAccessible: false
+
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DbSecurityGroupId
+
+      DBName: !Ref DBName
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+
+Outputs:
+  RdsEndpoint:
+    Description: "RDS endpoint (use this in app later)"
+    Value: !GetAtt RdsInstance.Endpoint.Address
+  RdsPort:
+    Value: !GetAtt RdsInstance.Endpoint.Port

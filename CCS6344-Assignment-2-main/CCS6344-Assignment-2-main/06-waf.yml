@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "DBCS A2 - Step 6 AWS WAFv2 WebACL attached to ALB (managed rules + validation rule)"
+
+Parameters:
+  AlbArn:
+    Type: String
+    Description: "ARN of the Application Load Balancer to protect (EC2 > Load Balancers > ARN)"
+
+  WebAclName:
+    Type: String
+    Default: "dbcs-a2-waf"
+    Description: "Name for the WAF Web ACL"
+
+Resources:
+  WafWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Ref WebAclName
+      Scope: REGIONAL
+      Description: "Protect ALB using AWS Managed WAF rules"
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${WebAclName}-metrics"
+        SampledRequestsEnabled: true
+
+      Rules:
+        - Name: BlockTestSQLi
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            ByteMatchStatement:
+              SearchString: "or 1=1"
+              FieldToMatch:
+                QueryString: {}
+              PositionalConstraint: CONTAINS
+              TextTransformations:
+                - Priority: 0
+                  Type: LOWERCASE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: "BlockTestSQLi"
+            SampledRequestsEnabled: true
+
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 10
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: "AWSManagedRulesCommonRuleSet"
+            SampledRequestsEnabled: true
+
+        - Name: AWSManagedRulesSQLiRuleSet
+          Priority: 20
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: "AWSManagedRulesSQLiRuleSet"
+            SampledRequestsEnabled: true
+
+  WafWebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref AlbArn
+      WebACLArn: !GetAtt WafWebAcl.Arn
+
+Outputs:
+  WebAclArn:
+    Description: "ARN of the created Web ACL"
+    Value: !GetAtt WafWebAcl.Arn
+
+  ProtectedAlbArn:
+    Description: "ALB ARN protected by this Web ACL"
+    Value: !Ref AlbArn
