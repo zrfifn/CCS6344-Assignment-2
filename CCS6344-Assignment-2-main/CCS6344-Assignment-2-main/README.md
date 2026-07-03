@@ -1,10 +1,11 @@
 # CCS6344 – Assignment 2  
 ## Secure Migration of a Traditional Application to AWS
 
-**Author:** Muhammad Zarif Irfan Bin Suhaimi (241UC2414W)  
+**Author:** Group 27  
 **GitHub:** [github.com/zrfifn](https://github.com/zrfifn)  
 **Course:** CCS6344 – Database & Cloud Security, Multimedia University (MMU)
-**Group:** Group 27
+
+
 The Infrastructure as Code (IaC) templates and DevSecOps configuration for the secure migration of a traditional web application to the AWS cloud for CCS6344 Assignment 2.
 
 The solution illustrates how an application can be migrated to a secure, multi-tier AWS architecture using Infrastructure as Code (CloudFormation) with a focus on cloud security best practices, including network segmentation, least-privilege IAM, encryption at rest and in transit, monitoring, logging, and web application protection.
